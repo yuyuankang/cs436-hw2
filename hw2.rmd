@@ -9,10 +9,45 @@ library(lubridate)
 library(feasts)
 library(fpp2)
 library(tsibbledata)
+library(shiny)
+library(dplyr)
+library(ggplot2)
+library(RColorBrewer)
+
 theme_set(theme_minimal())
 
 # read all green from the folder "visualization/data/parquet" parquet and union them
 file_paths <- list.files("data/", pattern = "green_tripdata_2015-.*\\.parquet", full.names = TRUE)
+
+parquet_urls <- c(
+  "https://github.com/yuyuankang/stats436-hw2/raw/refs/heads/main/data/green_tripdata_2015-01.parquet",
+  "https://github.com/yuyuankang/stats436-hw2/raw/refs/heads/main/data/green_tripdata_2015-02.parquet",
+  "https://github.com/yuyuankang/stats436-hw2/raw/refs/heads/main/data/green_tripdata_2015-03.parquet",
+  "https://github.com/yuyuankang/stats436-hw2/raw/refs/heads/main/data/green_tripdata_2015-04.parquet",
+  "https://github.com/yuyuankang/stats436-hw2/raw/refs/heads/main/data/green_tripdata_2015-05.parquet",
+  "https://github.com/yuyuankang/stats436-hw2/raw/refs/heads/main/data/green_tripdata_2015-06.parquet",
+  "https://github.com/yuyuankang/stats436-hw2/raw/refs/heads/main/data/green_tripdata_2015-07.parquet",
+  "https://github.com/yuyuankang/stats436-hw2/raw/refs/heads/main/data/green_tripdata_2015-08.parquet",
+  "https://github.com/yuyuankang/stats436-hw2/raw/refs/heads/main/data/green_tripdata_2015-09.parquet",
+  "https://github.com/yuyuankang/stats436-hw2/raw/refs/heads/main/data/green_tripdata_2015-10.parquet",
+  "https://github.com/yuyuankang/stats436-hw2/raw/refs/heads/main/data/green_tripdata_2015-11.parquet",
+  "https://github.com/yuyuankang/stats436-hw2/raw/refs/heads/main/data/green_tripdata_2015-12.parquet"
+)
+
+# is there is no data folder, create one
+if (!dir.exists("data")) {
+  dir.create("data")
+}
+
+# Define the local file paths
+file_paths <- paste0("data/green_tripdata_2015-", sprintf("%02d", 1:12), ".parquet")
+
+# Download files if they don't already exist
+for (i in seq_along(parquet_urls)) {
+  if (!file.exists(file_paths[i])) {
+    download.file(parquet_urls[i], file_paths[i], mode = "wb")
+  }
+}
 
 # Initialize an empty list to store data
 all_green_data <- list()
@@ -38,89 +73,40 @@ combined_green_data <- do.call(rbind, all_green_data) |>
   ) |>
   arrange(lpep_pickup_datetime)
 
-print(head(combined_green_data), width = Inf)
-```
-
-```{r}
-start <- as.Date("2015-01-01")
-end <- as.Date("2015-01-31")
-sample_size <- as.integer(nrow(combined_green_data) * (10^(-3)))
-sample_size <- max(min(sample_size, nrow(combined_green_data)), 1) # Ensure sample_size is at least 1
-sampled_data <- combined_green_data[sample(nrow(combined_green_data), sample_size), ] %>%
-  arrange(lpep_pickup_datetime)
-selected_date <- sampled_data %>%
-  filter(
-    lpep_pickup_datetime >= start,
-    lpep_dropoff_datetime <= end,
-    lpep_dropoff_datetime > lpep_pickup_datetime
-  ) %>%
-  mutate(trip_number = row_number())
-data <- data %>%
-  # Extract time of day as a continuous numeric variable for pickup and dropoff times
-  mutate(
-    pickup_time = as.numeric(format(lpep_pickup_datetime, "%H")) +
-      as.numeric(format(lpep_pickup_datetime, "%M")) / 60,
-    dropoff_time = as.numeric(format(lpep_dropoff_datetime, "%H")) +
-      as.numeric(format(lpep_dropoff_datetime, "%M")) / 60
-  ) %>%
-  arrange(pickup_time) %>%
-  mutate(trip_number = row_number())
-
-ggplot(data) +
-  # Segment plot showing trip number against pickup and dropoff times within a day
-  geom_segment(aes(
-    y = trip_number, x = pickup_time,
-    xend = dropoff_time, yend = trip_number
-  )) +
-  # Histogram showing the number of trips per hour (binned by 1 hour)
-  geom_histogram(aes(x = pickup_time),
-    fill = "blue", alpha = 0.7, binwidth = 1
-  ) + # Binwidth = 1 hour
-  # Labels for the plot
-  labs(y = "Trip Number", x = "Time of Day (hours)") +
-  # Ensure the x-axis shows the full 24-hour range
-  scale_x_continuous(breaks = seq(0, 24, by = 1), limits = c(0, 24)) +
-  theme_minimal()
-```
-
-```{r}
-print(tail(selected_date), width = Inf)
-```
-
-```{r}
-library(shiny)
-library(dplyr)
-library(tsibble)
-library(ggplot2)
-
-
 # Define UI for the Shiny app
 ui <- fluidPage(
-
-  # Create slider for sample rate (log-10 scale, fraction between 0 and 1)
+  titlePanel("Visualizing NYC Green Taxi Trip Data from 2015"),
+  p("This app allows you to explore NYC Green Taxi trip data from 2015. The dataset includes detailed information for each trip, with each row representing a single journey. Key details recorded for each trip include the pickup and dropoff times, the number of passengers, the trip distance, and the total fare charged."),
+  tags$h3("Sample Rate Adjustment"),
+  p("The full dataset is quite large, so to enhance interactivity and reduce server load, the app samples the data based on the selected sample rate. You can adjust the sample rate using the slider below, which operates on a logarithmic scale (log-10). A value of 0 represents the entire dataset, while negative values represent progressively smaller samples. For example, a value of -3 means that 1 out of every 1,000 trips will be sampled. Use this slider to control the amount of data displayed in the plots."),
   sliderInput("sample_rate",
-    label = "Sample Rate (Log-10 Scale):",
+    label = "",
     min = -4, max = 0, value = -3, step = 1
-  ), # Log-10 scale: from 0.0001 (10^-4) to 1 (10^0)
+  ),
+  tags$h3("Visualizing Trips Within the Selected Date Range"),
 
-  titlePanel("NYC Green Taxi Trip Data Viewer"),
+  p("Select the start and end dates for the range you want to visualize. The plot on the left (trip segment plot) will display the pickup and dropoff times for each trip within the selected date range, sorted by pickup time throughout the day. You can brush along the x-axis of the trip segment plot to focus on a specific period."),
 
+  p("The plot on the right (distance vs. duration scatter plot) will show the trip distance against the duration for trips in the selected date range. Clicking on a point in the scatter plot will display the trip details in the table below. If no time period is selected, the scatter plot will display all trips within the date range."),
+
+  p("Additionally, you can click on a point in the scatter plot to highlight the corresponding trip (in red) in the trip segment plot, allowing you to view its pickup and dropoff times."),
   # Date range selection for filtering
   dateRangeInput("date_range",
     label = "Select Date Range:",
     start = "2015-01-01",
     end = "2015-01-31", # Default date range
-    min = if (nrow(combined_green_data) > 0) min(combined_green_data$lpep_pickup_datetime) else Sys.Date(),
-    max = if (nrow(combined_green_data) > 0) max(combined_green_data$lpep_pickup_datetime) else Sys.Date(),
+    min = if (exists("combined_green_data")) min(combined_green_data$lpep_pickup_datetime) else Sys.Date(),
+    max = if (exists("combined_green_data")) max(combined_green_data$lpep_pickup_datetime) else Sys.Date(),
     format = "yyyy-mm-dd"
   ),
 
   # Display the two plots side by side
   fluidRow(
-    column(6, plotOutput("seg_plot", brush = brushOpts(id = "plot_brush", direction = "x"))), # Segment plot
-    column(6, plotOutput("distance_duration_plot")) # Distance vs Duration Plot
+    column(6, plotOutput("seg_plot", brush = brushOpts(id = "plot_brush", direction = "x"))), # Segment plot with brush
+    column(6, plotOutput("distance_duration_plot", click = "scatter_click")) # Scatter plot with click event
   ),
-  titlePanel("NYC Green Taxi Trip Distance vs. Time of Day"),
+  tags$h3("Visualizing Trip Distance vs. Time of Day and the Distribution of Pickup Times"),
+  p("Select the months you're interested in. The scatter plot shows trip distance versus time of day, allowing you to observe how both distance and pickup times are distributed throughout the day for the selected months. To provide clearer insight, a histogram of pickup times is overlaid on the scatter plot. By checking different months, you can compare how the distribution changes over the course of the year."),
 
   # Create checkbox inputs for months (default is January selected)
   fluidRow(
@@ -129,8 +115,8 @@ ui <- fluidPage(
     column(3, checkboxGroupInput("selected_months3", label = NULL, choices = setNames(7:9, month.name[7:9]), selected = NULL)),
     column(3, checkboxGroupInput("selected_months4", label = NULL, choices = setNames(10:12, month.name[10:12]), selected = NULL))
   ),
-  # plotOutput("distance_time_plot"),
-  # tableOutput("debug_table")
+  plotOutput("distance_time_plot"),
+  tableOutput("debug_table")
 )
 
 # Define server logic
@@ -156,19 +142,33 @@ server <- function(input, output, session) {
           as.numeric(format(lpep_pickup_datetime, "%M")) / 60,
         dropoff_time = as.numeric(format(lpep_dropoff_datetime, "%H")) +
           as.numeric(format(lpep_dropoff_datetime, "%M")) / 60,
-        dropoff_time = ifelse(dropoff_time < pickup_time, dropoff_time + 24, dropoff_time)
+        dropoff_time = ifelse(dropoff_time < pickup_time, dropoff_time + 24, dropoff_time),
+        # Add duration column to the dataset
+        duration = as.numeric(difftime(lpep_dropoff_datetime, lpep_pickup_datetime, units = "mins"))
       ) %>%
       arrange(pickup_time) %>%
       mutate(trip_number = row_number())
   })
 
+
+
   # Reactive expression to capture brushed points and compute distance vs. duration
   brushed_data <- reactive({
     brushed_points <- brushedPoints(selected_date(), input$plot_brush, xvar = "pickup_time", yvar = "trip_number")
 
-    # Calculate the duration of each trip in minutes
-    brushed_points %>%
-      mutate(duration = as.numeric(difftime(lpep_dropoff_datetime, lpep_pickup_datetime, units = "mins")))
+    # The dataset already contains the 'duration' column
+    brushed_points
+  })
+
+    # Reactive expression to capture clicked point from scatter plot
+  clicked_trip <- reactive({
+    # If brush exists and has data, restrict the click event to only the brushed data
+    if (nrow(brushed_data()) > 0) {
+      nearPoints(brushed_data(), input$scatter_click, xvar = "duration", yvar = "trip_distance", maxpoints = 1)
+    } else {
+      # Fallback to original click handling when no brush is applied
+      nearPoints(selected_date(), input$scatter_click, xvar = "duration", yvar = "trip_distance", maxpoints = 1)
+    }
   })
 
   # Combine selected months from all checkbox groups
@@ -183,24 +183,38 @@ server <- function(input, output, session) {
   })
 
   # Plotting the segment plot with swapped axes (trip_number on y-axis, time on x-axis)
-  plot_seg <- function(data) {
-    ggplot(data) +
+  plot_seg <- function(data, highlight_trip = NULL) {
+    p <- ggplot(data) +
       # Segment plot showing trip number against pickup and dropoff times within a day
       geom_segment(aes(
         y = trip_number, x = pickup_time,
         xend = dropoff_time, yend = trip_number
       )) +
-      # Histogram showing the number of trips per hour (binned by 1 hour)
-      geom_histogram(aes(x = pickup_time),
-        fill = "blue", alpha = 0.7, binwidth = 1
-      ) + # Binwidth = 1 hour
-      # Labels for the plot
-      labs(y = "Trip Number", x = "Time of Day (hours)") +
-      # Ensure the x-axis shows the full 24-hour range
+      labs(y = "", x = "Hour in a Day") +
       scale_x_continuous(breaks = seq(0, 24, by = 1), limits = c(0, 24)) +
-      theme_minimal()
-  }
+      theme_minimal() +
+      theme(
+        axis.text.y = element_blank(), # Remove y-axis text
+        axis.ticks.y = element_blank(), # Remove y-axis ticks
+        axis.text.x = element_text(size = 14), # Increase x-axis font size
+        axis.title.x = element_text(size = 14), # Increase x-axis title size
+        axis.title.y = element_text(size = 14) # Increase y-axis title size
+      )
 
+    # If a trip is selected, highlight it
+    if (!is.null(highlight_trip)) {
+      p <- p +
+        geom_segment(
+          data = highlight_trip, aes(
+            y = trip_number, x = pickup_time,
+            xend = dropoff_time, yend = trip_number
+          ),
+          color = "red", size = 1.5
+        )
+    }
+
+    p
+  }
 
   # Scatter plot for distance vs. duration with color representing fare and size representing passenger count
   plot_distance_duration <- function(data) {
@@ -208,12 +222,20 @@ server <- function(input, output, session) {
       geom_point(alpha = 0.7) +
       labs(
         x = "Trip Duration (minutes)", y = "Trip Distance (miles)",
-        # color = "Fare Amount", size = "Passenger Count"
-         size= "Fare Amount",  color = "Passenger Count"
+        size = "passenger number", color = "trip charge"
       ) +
-      theme_minimal()
+      scale_color_viridis_c(option = "viridis", direction = -1) +
+      theme_minimal() +
+      theme(
+        axis.text.x = element_text(size = 14),
+        axis.title.x = element_text(size = 14),
+        axis.text.y = element_text(size = 14),
+        axis.title.y = element_text(size = 14),
+        legend.text = element_text(size = 14)
+      )
   }
 
+  # Define `plot_distance_time_scatter` if needed for the month plot
   plot_distance_time_scatter <- function(data) {
     # Extract time of day as a continuous numeric variable (hours + minutes as fraction)
     data <- data %>%
@@ -221,22 +243,17 @@ server <- function(input, output, session) {
         as.numeric(format(lpep_pickup_datetime, "%M")) / 60)
 
     # Define the base plot with scatter points
-    ggplot(data, aes(
-      x = time_of_day, y = trip_distance,
-      color = as.factor(month(lpep_pickup_datetime)),
-      shape = as.factor(month(lpep_pickup_datetime))
-    )) +
+    p <- ggplot(data, aes(x = time_of_day, y = trip_distance)) +
       # Scatter plot of trip distances
-      geom_point(alpha = 0.7) +
+      geom_point(aes(color = as.factor(month(lpep_pickup_datetime))), alpha = 0.7) +
 
       # Overlaid histogram for the time of day, binned by hour, semi-transparent
       geom_histogram(aes(x = time_of_day, y = ..count.., fill = as.factor(month(lpep_pickup_datetime))),
         binwidth = 1, alpha = 0.4, position = "identity", inherit.aes = FALSE
       ) +
 
-      # Color scale for scatter plot and histogram (same colors)
-      scale_color_manual(values = rainbow(12)) +
-      scale_fill_manual(values = rainbow(12)) +
+      scale_color_brewer(palette = "Set1") +
+      scale_fill_brewer(palette = "Set1") +
 
       # Labels and axis customization
       labs(
@@ -245,40 +262,61 @@ server <- function(input, output, session) {
         title = "Trip Distance vs. Time of Day with Histogram (Filtered by Month)"
       ) +
       scale_x_continuous(breaks = seq(0, 24, by = 1), limits = c(0, 24)) + # Ensure x-axis shows 24 hours
-      theme_minimal()
+      theme_minimal() +
+      theme(
+        axis.text.x = element_text(size = 14),
+        axis.title.x = element_text(size = 14),
+        axis.text.y = element_text(size = 14),
+        axis.title.y = element_text(size = 14),
+        legend.text = element_text(size = 14)
+      )
+    return(p)
   }
 
   # Render the segment plot
   output$seg_plot <- renderPlot({
-    plot_seg(selected_date())
+    highlight_trip <- clicked_trip() # Get the clicked trip to highlight
+    plot_seg(selected_date(), highlight_trip)
   })
 
   # Render the distance vs. duration plot with color representing fare and size representing passenger count
   output$distance_duration_plot <- renderPlot({
-    data <- brushed_data()
+    # filter out when amount is negative or na
+    data <- brushed_data() %>%
+      filter(total_amount >= 0)
     # If no points are brushed, use the full dataset
     if (nrow(data) == 0) {
-      data <- selected_date() %>%
-        mutate(duration = as.numeric(difftime(lpep_dropoff_datetime, lpep_pickup_datetime, units = "mins")))
+      data <- selected_date()
     }
     plot_distance_duration(data)
   })
 
-  # output$debug_table <- renderTable({
-  #   brushed_data()
-  # })
+  output$debug_table <- renderTable({
+    # brushed_data() |>
+    #   mutate(
+    #     pickup_time = format(lpep_pickup_datetime, "%H:%M"),
+    #     dropoff_time = format(lpep_dropoff_datetime, "%H:%M"),
+    #     duration = paste0(duration, " mins")
+    #   )
+    # print highlighted trip data
+    clicked_trip() |>
+      mutate(
+        pickup_time = format(lpep_pickup_datetime, "%H:%M"),
+        dropoff_time = format(lpep_dropoff_datetime, "%H:%M")
+      )
+  })
 
   # Plotting Trip Distance vs Time of Day with different colors and shapes for each month
-  # output$distance_time_plot <- renderPlot({
-  #   data <- filtered_month_data()
+  output$distance_time_plot <- renderPlot({
+    data <- filtered_month_data()
 
-  #   # Check if there's data to plot
-  #   if (nrow(data) == 0) {
-  #     return(NULL)
-  #   }
+    # Check if there's data to plot
+    if (nrow(data) == 0) {
+      return(NULL)
+    }
 
-  #   plot_distance_time_scatter(data)
-  # })
+    plot_distance_time_scatter(data)
+  })
 }
 
 # Run the application
