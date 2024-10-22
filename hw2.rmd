@@ -84,11 +84,8 @@ ui <- fluidPage(
     min = -4, max = 0, value = -3, step = 1
   ),
   tags$h3("Visualizing Trips Within the Selected Date Range"),
-
   p("Select the start and end dates for the range you want to visualize. The plot on the left (trip segment plot) will display the pickup and dropoff times for each trip within the selected date range, sorted by pickup time throughout the day. You can brush along the x-axis of the trip segment plot to focus on a specific period."),
-
   p("The plot on the right (distance vs. duration scatter plot) will show the trip distance against the duration for trips in the selected date range. Clicking on a point in the scatter plot will display the trip details in the table below. If no time period is selected, the scatter plot will display all trips within the date range."),
-
   p("Additionally, you can click on a point in the scatter plot to highlight the corresponding trip (in red) in the trip segment plot, allowing you to view its pickup and dropoff times."),
   # Date range selection for filtering
   dateRangeInput("date_range",
@@ -115,8 +112,7 @@ ui <- fluidPage(
     column(3, checkboxGroupInput("selected_months3", label = NULL, choices = setNames(7:9, month.name[7:9]), selected = NULL)),
     column(3, checkboxGroupInput("selected_months4", label = NULL, choices = setNames(10:12, month.name[10:12]), selected = NULL))
   ),
-  plotOutput("distance_time_plot"),
-  tableOutput("debug_table")
+  plotOutput("distance_time_plot")
 )
 
 # Define server logic
@@ -160,7 +156,7 @@ server <- function(input, output, session) {
     brushed_points
   })
 
-    # Reactive expression to capture clicked point from scatter plot
+  # Reactive expression to capture clicked point from scatter plot
   clicked_trip <- reactive({
     # If brush exists and has data, restrict the click event to only the brushed data
     if (nrow(brushed_data()) > 0) {
@@ -251,7 +247,6 @@ server <- function(input, output, session) {
       geom_histogram(aes(x = time_of_day, y = ..count.., fill = as.factor(month(lpep_pickup_datetime))),
         binwidth = 1, alpha = 0.4, position = "identity", inherit.aes = FALSE
       ) +
-
       scale_color_brewer(palette = "Set1") +
       scale_fill_brewer(palette = "Set1") +
 
@@ -291,21 +286,6 @@ server <- function(input, output, session) {
     plot_distance_duration(data)
   })
 
-  output$debug_table <- renderTable({
-    # brushed_data() |>
-    #   mutate(
-    #     pickup_time = format(lpep_pickup_datetime, "%H:%M"),
-    #     dropoff_time = format(lpep_dropoff_datetime, "%H:%M"),
-    #     duration = paste0(duration, " mins")
-    #   )
-    # print highlighted trip data
-    clicked_trip() |>
-      mutate(
-        pickup_time = format(lpep_pickup_datetime, "%H:%M"),
-        dropoff_time = format(lpep_dropoff_datetime, "%H:%M")
-      )
-  })
-
   # Plotting Trip Distance vs Time of Day with different colors and shapes for each month
   output$distance_time_plot <- renderPlot({
     data <- filtered_month_data()
@@ -321,10 +301,4 @@ server <- function(input, output, session) {
 
 # Run the application
 shinyApp(ui = ui, server = server)
-```
-
-```{r}
-# read one month data
-file_path <- "data/green_tripdata_2015-01.parquet"
-data <- arrow::read_parquet(file_path, as.data.frame = TRUE)
 ```
