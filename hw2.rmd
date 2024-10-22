@@ -1,0 +1,359 @@
+```{r}
+
+```
+
+```{r}
+# read all green from the folder "visualization/data/parquet" parquet and union them
+# List of all file paths
+file_paths <- list.files("data/", pattern = "green_tripdata_2015-.*\\.parquet", full.names = TRUE)
+
+# Initialize an empty list to store data
+all_green_data <- list()
+
+# Loop through the file paths and read each parquet file
+for (file in file_paths) {
+  all_green_data[[file]] <- arrow::read_parquet(file, as.data.frame = TRUE, col_select = c("VendorID", "lpep_pickup_datetime", "lpep_dropoff_datetime", "passenger_count", "trip_distance"))
+}
+
+# Combine all data into one data frame
+combined_green_data <- do.call(rbind, all_green_data)
+
+# Print column names of the combined data
+print(names(combined_green_data))
+```
+
+```{r}
+# sample 1000,000 rows from the combined data
+sample_size <- min(nrow(combined_green_data), 100000)
+sampled_data <- combined_green_data[sample(nrow(combined_green_data), sample_size), ]
+```
+
+```{r}
+# add a id column
+sampled_data <- sampled_data %>%
+  mutate(id = row_number())
+sample_tsibble <- as_tsibble(sampled_data, index = lpep_pickup_datetime, key = id) |>
+  # sort by pickup datetime
+  arrange(lpep_pickup_datetime) |>
+  mutate(day = day(lpep_pickup_datetime), month = month(lpep_pickup_datetime), hour = hour(lpep_pickup_datetime)) |>
+  mutate(day = as.factor(day), month = as.factor(month), hour = as.factor(hour)) |>
+  # filter out the data that is not in 2015
+  filter(year(lpep_pickup_datetime) == 2015)
+print(head(sample_tsibble), width = Inf)
+```
+
+```{r}
+# filter the data on a specific day
+filtered_data <- sample_tsibble %>%
+  filter(month == 1, day == 1) %>%
+  mutate(trip_number = row_number())
+# plot each trip on the map, start time and end time, sort by start time
+ggplot(filtered_data, aes(x = trip_number, y = lpep_pickup_datetime, trip_numberend = trip_number, yend = lpep_dropoff_datetime)) +
+  geom_segment() +
+  labs(title = "Trips on 2015-01-01", x = "Longitude", y = "Latitude")
+```
+
+```{r}
+# hourly
+hourly_tsibble <- sample_tsibble %>%
+  group_by(month, day, hour) %>%
+  tally()
+head(hourly_tsibble)
+```
+
+```{r}
+# for each day, draw a line, x is the hour, y is the number of trips
+# each day is in the same color
+# different days are in different colors, pal = cols
+#
+ggplot(hourly_tsibble, aes(x = hour, y = n, group = day, color = day)) +
+  geom_line() +
+  labs(title = "Number of Trips by Hour", x = "Hour", y = "Number of Trips") +
+  theme(legend.position = "none")
+```
+
+```{r}
+daily_tsibble <- sample_tsibble %>%
+  mutate(date = as.Date(lpep_pickup_datetime)) %>%
+  index_by(date) %>%
+  summarise(count = n())
+
+# 正确调用 head() 来查看前几行
+head(daily_tsibble)
+```
+```{r}
+# # group daily
+daily_tsibble <- sample_tsibble %>%
+  mutate(date = as.Date(lpep_pickup_datetime))
+# %>%  # 提取日期
+# group_by(date) %>%
+# summarise(count = n()) %>%  # 计算每天的记录数
+# ungroup()  # 确保返回非分组数据框
+head(daily_tsibble)
+# # group weekly
+# weekly_tsibble <- sample_tsibble %>%
+#   index_by(week = yearweek(lpep_pickup_datetime)) %>%
+#   summarise(total_passenger_count = sum(passenger_count, na.rm = TRUE))
+# head(weekly_tsibble)
+# # group monthly
+# monthly_tsibble <- sample_tsibble %>%
+#   index_by(month = yearmonth(lpep_pickup_datetime)) %>%
+#   summarise(total_passenger_count = sum(passenger_count, na.rm = TRUE))
+# head(monthly_tsibble)
+```
+
+```{r}
+# 将数据转换为 tsibble
+data_tsibble <- as_tsibble(filtered_data, index = lpep_pickup_datetime, key = id)
+
+# 检查 tsibble 数据结构
+print(data_tsibble)
+```
+
+```{r}
+p <- ggplot(data, aes(x = lpep_pickup_datetime)) +
+  geom_histogram(binwidth = 10, fill = "blue", color = "black") +
+  labs(title = "Histogram of Pickup Datetime", x = "Pickup Datetime", y = "Frequency")
+
+print(p)
+```
+
+```{r}
+# enumerate and count all distinct values of VendorID
+data %>%
+  count(VendorID)
+```
+
+```{r}
+library(feasts)
+gg_season(data_tsibble, passenger_count, period = "day")
+```
+
+```{r}
+# Ensure that data_tsibble is correctly defined as a tsibble with a valid index
+data_tsibble <- data_tsibble %>%
+  as_tsibble(index = lpep_pickup_datetime, key = id)
+
+# Aggregate passenger count by month
+monthly_data_tsibble <- data_tsibble %>%
+  index_by(month = yearmonth(lpep_pickup_datetime)) %>% # Grouping by month
+  summarise(total_passenger_count = sum(passenger_count, na.rm = TRUE)) # Summarizing passenger count
+
+# View the aggregated data
+head(monthly_data_tsibble)
+```
+
+```{r}
+print(a10)
+
+head(a10)
+
+cols <- scales::viridis_pal()(10)
+gg_season(as_tsibble(a10), pal = cols)
+```
+```{r}
+head(vic_elec)
+gg_season(vic_elec, Demand, period = "day", pal = cols)
+```
+
+```{r}
+library(arrow)
+library(dplyr)
+library(tidyverse)
+library(tsibble)
+library(lubridate)
+library(feasts)
+library(fpp2)
+library(tsibbledata)
+theme_set(theme_minimal())
+
+# read all green from the folder "visualization/data/parquet" parquet and union them
+file_paths <- list.files("data/", pattern = "green_tripdata_2015-.*\\.parquet", full.names = TRUE)
+
+# Initialize an empty list to store data
+all_green_data <- list()
+
+# Loop through the file paths and read each parquet file
+for (file in file_paths) {
+  all_green_data[[file]] <- arrow::read_parquet(file,
+    as.data.frame = TRUE,
+    col_select = c(
+      "VendorID", "lpep_pickup_datetime",
+      "lpep_dropoff_datetime", "passenger_count",
+      "trip_distance"
+    )
+  )
+}
+
+# Combine all data into one data frame
+combined_green_data <- do.call(rbind, all_green_data) |>
+  mutate(
+    lpep_pickup_datetime = as.POSIXct(lpep_pickup_datetime, origin = "1970-01-01", tz = "UTC"),
+    lpep_dropoff_datetime = as.POSIXct(lpep_dropoff_datetime, origin = "1970-01-01", tz = "UTC")) |>
+  arrange(lpep_pickup_datetime)
+
+print(head(combined_green_data), width = Inf)
+```
+
+
+```{r}
+library(shiny)
+library(dplyr)
+library(tsibble)
+library(ggplot2)
+
+# Define UI for the Shiny app
+ui <- fluidPage(
+
+  # Create slider for sample rate (log-10 scale, fraction between 0 and 1)
+  sliderInput("sample_rate", 
+              label = "Sample Rate (Log-10 Scale):", 
+              min = -4, max = 0, value = -3, step = 1),  # Log-10 scale: from 0.0001 (10^-4) to 1 (10^0)
+
+  titlePanel("NYC Green Taxi Trip Data Viewer"),
+  
+  dateInput("date",
+    label = "Select Date:",
+    value = "2015-01-01", # Default starting date
+    min = if (nrow(combined_green_data) > 0) min(combined_green_data$lpep_pickup_datetime) else Sys.Date(),
+    max = if (nrow(combined_green_data) > 0) max(combined_green_data$lpep_pickup_datetime) else Sys.Date(),
+    format = "yyyy-mm-dd"
+  ),
+  
+  # Display the two plots side by side
+  fluidRow(
+    column(6, plotOutput("seg_plot", brush = brushOpts(id = "plot_brush", direction = "x"))),  # Segment plot
+    column(6, plotOutput("duration_histogram"))  # Histogram
+  ),
+
+  titlePanel("NYC Green Taxi Trip Distance vs. Time of Day"),
+  
+  # Create checkbox inputs for months (default is January selected)
+  fluidRow(
+    column(3, checkboxGroupInput("selected_months1", label = NULL, choices = setNames(1:3, month.name[1:3]), selected = 1)),
+    column(3, checkboxGroupInput("selected_months2", label = NULL, choices = setNames(4:6, month.name[4:6]), selected = NULL)),
+    column(3, checkboxGroupInput("selected_months3", label = NULL, choices = setNames(7:9, month.name[7:9]), selected = NULL)),
+    column(3, checkboxGroupInput("selected_months4", label = NULL, choices = setNames(10:12, month.name[10:12]), selected = NULL))
+  ),
+  
+  plotOutput("distance_time_plot")
+)
+
+# Define server logic
+server <- function(input, output, session) {
+
+  # Sample the data based on the selected sample rate
+  sampled_data <- reactive({
+    sample_size <- as.integer(nrow(combined_green_data) * 10^input$sample_rate)
+    sample_size <- max(min(sample_size, nrow(combined_green_data)), 1)  # Ensure sample_size is at least 1
+    combined_green_data[sample(nrow(combined_green_data), sample_size), ] %>%
+      arrange(lpep_pickup_datetime)
+  })
+
+  # Reactive expression to filter data based on selected date
+  selected_date <- reactive({
+    sampled_data() %>%
+      filter(as.Date(lpep_pickup_datetime) == as.Date(input$date)) %>%
+      mutate(trip_number = row_number())
+  })
+
+  # Reactive expression to capture brushed points and compute duration
+  brushed_data <- reactive({
+    brushed_points <- brushedPoints(selected_date(), input$plot_brush, xvar = "lpep_pickup_datetime", yvar = "trip_number")
+    
+    # Calculate the duration of each trip in minutes
+    brushed_points %>%
+      mutate(duration = as.numeric(difftime(lpep_dropoff_datetime, lpep_pickup_datetime, units = "mins")))
+  })
+
+  # Combine selected months from all checkbox groups
+  selected_months <- reactive({
+    c(input$selected_months1, input$selected_months2, input$selected_months3, input$selected_months4)
+  })
+
+  # Reactive expression to filter data based on selected months
+  filtered_month_data <- reactive({
+    sampled_data() %>%
+      filter(month(lpep_pickup_datetime) %in% selected_months())  # Filter based on selected months
+  })
+
+  # Plotting the segment plot with swapped axes (trip_number on y-axis, time on x-axis)
+  plot_seg <- function(data) {
+    ggplot(data, aes(y = trip_number, x = lpep_pickup_datetime, xend = lpep_dropoff_datetime, yend = trip_number)) +
+      geom_segment() +
+      labs(y = "Trip Number", x = "Pickup and Dropoff Time")
+  }
+
+  plot_hist <- function(data) {
+    ggplot(data, aes(x = duration)) +
+      geom_histogram(binwidth = 10, fill = "blue", alpha = 0.7) +
+      labs(x = "Trip Duration (minutes)", y = "Count", title = "Histogram of Trip Durations")
+  }
+
+plot_distance_time_scatter <- function(data) {
+  # Extract time of day as a continuous numeric variable (hours + minutes as fraction)
+  data <- data %>%
+    mutate(time_of_day = as.numeric(format(lpep_pickup_datetime, "%H")) + 
+                        as.numeric(format(lpep_pickup_datetime, "%M")) / 60)
+
+  # Define the base plot with scatter points
+  ggplot(data, aes(x = time_of_day, y = trip_distance, 
+                   color = as.factor(month(lpep_pickup_datetime)), 
+                   shape = as.factor(month(lpep_pickup_datetime)))) +
+    # Scatter plot of trip distances
+    geom_point(alpha = 0.7) +
+    
+    # Overlaid histogram for the time of day, binned by hour, semi-transparent
+    geom_histogram(aes(x = time_of_day, y = ..count.., fill = as.factor(month(lpep_pickup_datetime))), 
+                   binwidth = 1, alpha = 0.4, position = "identity", inherit.aes = FALSE) +
+    
+    # Color scale for scatter plot and histogram (same colors)
+    scale_color_manual(values = rainbow(12)) +
+    scale_fill_manual(values = rainbow(12)) +
+    
+    # Labels and axis customization
+    labs(x = "Time of Day (hours)", y = "Trip Distance (miles)", 
+         color = "Month", fill = "Month", shape = "Month",
+         title = "Trip Distance vs. Time of Day with Histogram (Filtered by Month)") +
+    scale_x_continuous(breaks = seq(0, 24, by = 1), limits = c(0, 24)) +  # Ensure x-axis shows 24 hours
+    theme_minimal()
+}
+
+  # Render the segment plot
+  output$seg_plot <- renderPlot({
+    plot_seg(selected_date())
+  })
+    
+  # Render the duration histogram based on brushed segments
+  output$duration_histogram <- renderPlot({
+    data <- brushed_data()
+    # If no points are brushed, use the full dataset
+    if(nrow(data) == 0) {
+      data <- selected_date() %>%
+        mutate(duration = as.numeric(difftime(lpep_dropoff_datetime, lpep_pickup_datetime, units = "mins")))
+    }
+    plot_hist(data)
+  })
+
+  # Plotting Trip Distance vs Time of Day with different colors and shapes for each month
+  output$distance_time_plot <- renderPlot({
+    data <- filtered_month_data()
+    
+    # Check if there's data to plot
+    if(nrow(data) == 0) {
+      return(NULL)
+    }
+
+    plot_distance_time_scatter(data)
+  })
+}
+
+# Run the application
+shinyApp(ui = ui, server = server)
+
+
+```
+
+```{r}
+sample_tsibble
+```
