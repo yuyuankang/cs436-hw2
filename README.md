@@ -39,4 +39,4 @@ The R code for this assignment can be found in the root directory of the reposit
 - **Question 3**: What is the reactive graph structure of your application?
   - I used multiple types of dynamic queries, including through UI or graphical inputs. The reactive graph structure is shown below:
 
-  ![Reactive Graph Structure](img/graph.png)
+  ![Reactive Graph Structure](img/graph.png?)
